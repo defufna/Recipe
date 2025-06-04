@@ -1,0 +1,61 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"name":"csharp","languageName":"csharp"},{"name":"fsharp","languageName":"F#","aliases":["f#","fs"]},{"name":"html","languageName":"HTML"},{"name":"http","languageName":"HTTP"},{"name":"javascript","languageName":"JavaScript","aliases":["js"]},{"name":"mermaid","languageName":"Mermaid"},{"name":"pwsh","languageName":"PowerShell","aliases":["powershell"]},{"name":"value"}]}}
+
+#!csharp
+
+#r "nuget:Microsoft.ML"
+#r "nuget:Microsoft.ML.OnnxRuntime"
+#r "nuget:Microsoft.ML.Tokenizers"
+
+#!csharp
+
+using Microsoft.ML.Tokenizers;
+using Microsoft.ML.OnnxRuntime;
+using Microsoft.ML.OnnxRuntime.Tensors;
+
+#!csharp
+
+BertTokenizer tokenizer = BertTokenizer.Create("./minilm_onnx/vocab.txt");
+
+#!csharp
+
+var inputIds = tokenizer.EncodeToIds("This is an example sentence").Select(x=>(long)x).ToArray();
+
+#!csharp
+
+var inputIds = tokenizer.EncodeToIds("This is an example sentence").ToArray<int>();
+new DenseTensor<int>(inputIds, new int[]{1, inputIds.Count})
+
+#!csharp
+
+var onnxSession = new InferenceSession("./minilm_onnx/model.onnx");
+
+#!csharp
+
+var inputTensor = new DenseTensor<long>(inputIds, new int[] { 1, inputIds.Length });
+var attention = new DenseTensor<long>(Enumerable.Repeat(1L, inputIds.Length).ToArray(), new int[] { 1, inputIds.Length });
+
+#!csharp
+
+inputTensor[0, 2]
+
+#!csharp
+
+var inputs = new List<NamedOnnxValue>
+{
+    NamedOnnxValue.CreateFromTensor("input_ids", inputTensor), 
+    NamedOnnxValue.CreateFromTensor("attention_mask",  attention)    // Add attention_mask and token_type_ids if required by your model
+};
+
+#!csharp
+
+var res = onnxSession.Run(inputs);
+
+#!csharp
+
+((DenseTensor<long>)inputs[0].Value).Dimensions.Length
+
+#!csharp
+
+((IList<float>)(res[1].Value))
