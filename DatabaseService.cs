@@ -17,14 +17,14 @@ namespace RecipeVectorSearch
     {
         private const string DbName = "recipes_db";
         private readonly EmbeddingService _embeddingService;
-        private NpgsqlDataSource _dataSource;
-        private string _connectionString;
+        private NpgsqlDataSource dataSource;
+        private string connectionString;
 
         public DatabaseService(string connectionString, EmbeddingService embeddingService)
         {
-            _connectionString = connectionString;
+            this.connectionString = connectionString;
             _embeddingService = embeddingService;
-            _dataSource = BuildDataSource(connectionString);
+            dataSource = BuildDataSource(connectionString);
         }
 
         private static NpgsqlDataSource BuildDataSource(string connectionString)
@@ -36,16 +36,16 @@ namespace RecipeVectorSearch
 
         public void UpdateConnectionString(string newConnectionString)
         {
-            _dataSource?.Dispose();
-            _connectionString = newConnectionString;
-            _dataSource = BuildDataSource(newConnectionString);
+            dataSource?.Dispose();
+            connectionString = newConnectionString;
+            dataSource = BuildDataSource(newConnectionString);
         }
 
-        public string GetConnectionString() => _connectionString;
+        public string GetConnectionString() => connectionString;
 
         public void Initialize()
         {
-            var baseConnString = _connectionString.Replace($"Database={DbName}", "Database=postgres");
+            var baseConnString = connectionString.Replace($"Database={DbName}", "Database=postgres");
             using (var conn = new NpgsqlConnection(baseConnString))
             {
                 conn.Open();
@@ -58,7 +58,7 @@ namespace RecipeVectorSearch
                 }
             }
 
-            using var dbConn = _dataSource.CreateConnection();
+            using var dbConn = dataSource.CreateConnection();
             dbConn.Open();
             const string schemaSql = @"
                 CREATE EXTENSION IF NOT EXISTS vector;
@@ -76,11 +76,12 @@ namespace RecipeVectorSearch
                 ON recipes USING hnsw (ingredient_embedding vector_cosine_ops);";
             using var schemaCmd = new NpgsqlCommand(schemaSql, dbConn);
             schemaCmd.ExecuteNonQuery();
+            UpdateConnectionString(connectionString);
         }
 
         public void Drop()
         {
-            var baseConnString = _connectionString.Replace($"Database={DbName}", "Database=postgres");
+            var baseConnString = connectionString.Replace($"Database={DbName}", "Database=postgres");
             using var conn = new NpgsqlConnection(baseConnString);
             conn.Open();
             // Terminate connections before dropping to avoid errors.
@@ -116,37 +117,42 @@ namespace RecipeVectorSearch
                 }
             }, cts.Token);
 
-
-            await Parallel.ForEachAsync(recipes, new ParallelOptions { MaxDegreeOfParallelism = 16, CancellationToken = token }, async (recipe, token) =>
+            try
             {
-                var nerIngredients = JsonSerializer.Deserialize<string[]>(recipe.NER);
-                if (nerIngredients == null || nerIngredients.Length == 0) return;
 
-                if (!_embeddingService.TryGenerateEmbedding(nerIngredients, out var embeddingTensor) || embeddingTensor == null)
+                await Parallel.ForEachAsync(recipes, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = token }, async (recipe, token) =>
                 {
-                    return; // Skip if embedding fails
-                }
+                    var nerIngredients = JsonSerializer.Deserialize<string[]>(recipe.NER);
+                    if (nerIngredients == null || nerIngredients.Length == 0) return;
 
-                using var conn = await _dataSource.OpenConnectionAsync(token);
-                using var cmd = new NpgsqlCommand(
-                    @"INSERT INTO recipes (title, ingredients, directions, link, source, ner, ingredient_embedding)
+                    if (!_embeddingService.TryGenerateEmbedding(nerIngredients, out var embeddingTensor) || embeddingTensor == null)
+                    {
+                        return; // Skip if embedding fails
+                    }
+
+                    using var conn = await dataSource.OpenConnectionAsync(token);
+                    using var cmd = new NpgsqlCommand(
+                        @"INSERT INTO recipes (title, ingredients, directions, link, source, ner, ingredient_embedding)
                       VALUES (@title, @ingredients, @directions, @link, @source, @ner, @embedding)", conn);
 
-                cmd.Parameters.AddWithValue("title", recipe.Title);
-                cmd.Parameters.AddWithValue("ingredients", NpgsqlTypes.NpgsqlDbType.Jsonb, recipe.Ingredients);
-                cmd.Parameters.AddWithValue("directions", NpgsqlTypes.NpgsqlDbType.Jsonb, recipe.Directions);
-                cmd.Parameters.AddWithValue("link", recipe.Link ?? (object)DBNull.Value);
-                cmd.Parameters.AddWithValue("source", recipe.Source ?? (object)DBNull.Value);
-                cmd.Parameters.AddWithValue("ner", NpgsqlTypes.NpgsqlDbType.Jsonb, recipe.NER);
-                cmd.Parameters.AddWithValue("embedding", new Vector(embeddingTensor.ToArray()));
+                    cmd.Parameters.AddWithValue("title", recipe.Title);
+                    cmd.Parameters.AddWithValue("ingredients", NpgsqlTypes.NpgsqlDbType.Jsonb, recipe.Ingredients);
+                    cmd.Parameters.AddWithValue("directions", NpgsqlTypes.NpgsqlDbType.Jsonb, recipe.Directions);
+                    cmd.Parameters.AddWithValue("link", recipe.Link ?? (object)DBNull.Value);
+                    cmd.Parameters.AddWithValue("source", recipe.Source ?? (object)DBNull.Value);
+                    cmd.Parameters.AddWithValue("ner", NpgsqlTypes.NpgsqlDbType.Jsonb, recipe.NER);
+                    cmd.Parameters.AddWithValue("embedding", new Vector(embeddingTensor.ToArray()));
 
-                await cmd.ExecuteNonQueryAsync(token);
+                    await cmd.ExecuteNonQueryAsync(token);
 
-                Interlocked.Increment(ref count);
-            });
-
-            cts.Cancel();
-            await progressUpdater;
+                    Interlocked.Increment(ref count);
+                });
+            }
+            finally
+            { 
+                cts.Cancel();
+                await progressUpdater;
+            }
 
             return count;
         }
@@ -159,7 +165,7 @@ namespace RecipeVectorSearch
             }
 
             var queryVector = new Vector(queryEmbeddingTensor.ToArray());
-            using var conn = _dataSource.CreateConnection();
+            using var conn = dataSource.CreateConnection();
             conn.Open();
 
             using var cmd = new NpgsqlCommand(
@@ -189,7 +195,7 @@ namespace RecipeVectorSearch
 
         public void Dispose()
         {
-            _dataSource?.Dispose();
+            dataSource?.Dispose();
             GC.SuppressFinalize(this);
         }
     }

@@ -61,6 +61,36 @@ namespace RecipeVectorSearch.UI
                 }
             };
 
+                        // Create main content area
+            var mainFrame = new FrameView()
+            {
+                X = 1,
+                Y = 2,
+                Width = Dim.Fill() - 1,
+                Height = Dim.Fill() - 1,
+                Title = "Welcome"
+            };
+
+            var welcomeText = new Label()
+            {
+                Text = "Recipe Vector Search Application\n\n" +
+                                     "Use the menu above to:\n" +
+                                     "• Initialize or manage the database\n" +
+                                     "• Load recipes from CSV files\n" +
+                                     "• Search for similar recipes\n\n" +
+                                     "Press F10 to quit",
+                X = 2,
+                Y = 2,
+                Width = Dim.Fill() - 4,
+                Height = Dim.Fill() - 4
+            };
+
+#if DEBUG
+            welcomeText.Text += $"\n\nDebug Mode: PID = {Environment.ProcessId}";
+#endif
+            mainFrame.Add(welcomeText);
+            window.Add(mainFrame);
+
             window.Add(menuBar);
             
             var statusBar = new StatusBar(new Shortcut[] {
@@ -69,7 +99,7 @@ namespace RecipeVectorSearch.UI
                 new Shortcut(Key.F10, "Quit", () => Application.RequestStop()),
             });
             window.Add(statusBar);
-
+            
             return window;
         }
 
