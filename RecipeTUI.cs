@@ -11,10 +11,12 @@ namespace RecipeVectorSearch.UI
     internal class RecipeTUI
     {
         private readonly DatabaseService dbService;
+        private readonly EmbeddingService embeddingService;
 
-        public RecipeTUI(DatabaseService dbService)
+        public RecipeTUI(DatabaseService dbService, EmbeddingService embeddingService)
         {
             this.dbService = dbService ?? throw new ArgumentNullException(nameof(dbService));
+            this.embeddingService = embeddingService ?? throw new ArgumentNullException(nameof(embeddingService));
         }
 
         /// <summary>
@@ -23,6 +25,7 @@ namespace RecipeVectorSearch.UI
         public void Run()
         {
             Application.Init();
+            
             var mainWindow = CreateMainWindow();
             Application.Run(mainWindow);
             Application.Shutdown();
@@ -30,6 +33,8 @@ namespace RecipeVectorSearch.UI
 
         private Window CreateMainWindow()
         {
+            //File.AppendAllText("debug.txt", string.Join(',', ThemeManager.Themes.Keys)+ Environment.NewLine);
+
             var window = new Window()
             {
                 Title = "Recipe Vector Search",
@@ -52,6 +57,9 @@ namespace RecipeVectorSearch.UI
                     new MenuBarItem("_Search", new MenuItem[] {
                         new MenuItem("_Search Recipes", "", SearchRecipesDialog),
                     }),
+                    new MenuBarItem("_Benchmark", new MenuItem[] {
+                        new MenuItem("Embedding _Benchmark", "", EmbeddingBenchmarkDialog),
+                    }),
                     new MenuBarItem("Se_ttings", new MenuItem[] {
                         new MenuItem("_Connection String", "", ConnectionStringDialog),
                     }),
@@ -61,7 +69,7 @@ namespace RecipeVectorSearch.UI
                 }
             };
 
-                        // Create main content area
+            // Create main content area
             var mainFrame = new FrameView()
             {
                 X = 1,
@@ -92,15 +100,170 @@ namespace RecipeVectorSearch.UI
             window.Add(mainFrame);
 
             window.Add(menuBar);
-            
+
             var statusBar = new StatusBar(new Shortcut[] {
                 new Shortcut(Key.F1, "Help", ShowAboutDialog),
                 new Shortcut(Key.F3, "Search Recipes", SearchRecipesDialog),
                 new Shortcut(Key.F10, "Quit", () => Application.RequestStop()),
             });
             window.Add(statusBar);
-            
+
             return window;
+        }
+
+        private IEnumerable<int> GetParallelismOptions()
+        {
+            int i = 1;
+            while (true)
+            {
+                yield return i;
+                i *= 2;
+            }
+        }
+
+        private void EmbeddingBenchmarkDialog()
+        {
+            var dialog = new Dialog()
+            {
+                Title = "Embedding Benchmark",
+                Width = Dim.Percent(80), // Use percentage for better responsiveness
+                Height = Dim.Percent(80)
+            };
+
+            // 1. Dropdown for CPU/GPU/NPU selection
+            var hardwareLabel = new Label
+            {
+                Text = "Hardware:",
+                X = 1,
+                Y = 1
+            };
+            dialog.Add(hardwareLabel);
+
+            var hardwareRadioGroup = new RadioGroup()
+            {
+                X = Pos.Right(hardwareLabel) + 2,
+                Y = Pos.Top(hardwareLabel),
+                Width = Dim.Fill(),
+                Height = 1,
+                SelectedItem = 0, // Default to CPU
+                RadioLabels = ["CPU", "GPU", "NPU"],
+                Orientation = Orientation.Horizontal
+            };
+
+            dialog.Add(hardwareRadioGroup);
+
+            // Add paralelism slider
+            var parallelismLabel = new Label
+            {
+                Text = "Parallelism:",
+                X = 1,
+                Y = Pos.Bottom(hardwareRadioGroup) + 1
+            };
+            dialog.Add(parallelismLabel);
+            var parallelismSlider = new Slider<int>([..GetParallelismOptions().Take(8)])
+            {
+                X = Pos.Right(parallelismLabel) + 2,
+                Y = Pos.Top(parallelismLabel),
+                Width = Dim.Fill() - 4,
+                Orientation = Orientation.Horizontal,
+                Type = SliderType.Single,
+                Title = "Parallelism Level"
+            };
+            dialog.Add(parallelismSlider);
+
+            // 2. GraphView for displaying benchmark results
+            var graphView = new GraphView()
+            {
+                X = 1,
+                Y = Pos.Bottom(parallelismSlider) + 1,
+                Width = Dim.Fill() - 2,
+                Height = Dim.Fill() - 5, // Make space for the button and status
+            };
+
+            var stiple = new GraphCellToRender(Glyphs.Stipple);
+
+            BarSeries series = new()
+            {
+                Orientation = Orientation.Vertical,
+                Bars = new()
+                {
+                   new(" ", stiple, 100)
+                }
+            };
+
+            graphView.Series.Add(series);
+            dialog.Add(graphView);
+
+            // Status Label
+            var statusLabel = new Label
+            {
+                X = 1,
+                Y = Pos.Bottom(graphView) + 1,
+                Width = Dim.Fill() - 2
+            };
+            dialog.Add(statusLabel);
+
+            // 3. Run/Stop Button
+            var runButton = new Button
+            {
+                Text = "Run",
+                X = Pos.Center(),
+                Y = Pos.Bottom(statusLabel) + 1,
+                IsDefault = true // Make it the default focused button
+            };
+            dialog.Add(runButton);
+
+            Benchmark benchmark = null;
+
+            runButton.Accepting += (s, e) =>
+            {
+                if (runButton.Text == "Stop")
+                {
+                    Debug.Assert(benchmark != null, "Benchmark should not be null when stopping");
+                    benchmark.Stop();
+                    benchmark = null;
+                    runButton.Text = "Run";
+                    statusLabel.Text = "Benchmark stopped.";
+                    return;
+                }
+
+                runButton.Text = "Stop";
+                statusLabel.Text = "Running benchmark...";
+                var random = new Random();
+                float max = 0;
+
+                ExecutionProvider provider = hardwareRadioGroup.SelectedItem switch
+                {
+                    0 => ExecutionProvider.CPU,
+                    1 => ExecutionProvider.GPU,
+                    2 => ExecutionProvider.NPU,
+                    _ => throw new InvalidOperationException("Invalid hardware selection")
+                };
+
+                benchmark = Benchmark.Run(provider, (count) =>
+                {
+                    Application.Invoke(() =>
+                    {
+                        max = Math.Max(max, count);
+                        statusLabel.Text = $"Embeddings/second: {count:F2}";
+                        graphView.CellSize = new(1, Math.Max(1, max / (graphView.GetContentSize().Height - 2)));
+                        series.Bars.Add(new(null, stiple, count));
+                        graphView.SetNeedsDraw();
+                    });
+                }, parallelismSlider.Options[parallelismSlider.GetSetOptions().FirstOrDefault(1)].Data);
+            };
+
+            dialog.Closing += (s, e) =>
+            {
+                if (benchmark != null)
+                {
+                    benchmark.Stop();
+                    benchmark = null;
+                }
+            };
+
+            Application.Run(dialog);
+
         }
 
         #region Action Handlers & Dialogs
@@ -149,30 +312,31 @@ namespace RecipeVectorSearch.UI
                 Height = 8
             };
 
-            var connField = new TextField() 
-            { 
+            var connField = new TextField()
+            {
                 Text = dbService.GetConnectionString(),
-                X = 1, 
-                Y = 2, 
-                Width = Dim.Fill() - 2 
+                X = 1,
+                Y = 2,
+                Width = Dim.Fill() - 2
             };
-            
-            var saveButton = new Button() 
-            { 
+
+            var saveButton = new Button()
+            {
                 Text = "Save",
-                X = 1, 
+                X = 1,
                 Y = 4,
                 IsDefault = true
             };
-            
-            var cancelButton = new Button() 
-            { 
+
+            var cancelButton = new Button()
+            {
                 Text = "Cancel",
-                X = Pos.Right(saveButton) + 3, 
-                Y = 4 
+                X = Pos.Right(saveButton) + 3,
+                Y = 4
             };
 
-            saveButton.Accepting += (s, e) => {
+            saveButton.Accepting += (s, e) =>
+            {
                 try
                 {
                     dbService.UpdateConnectionString(connField.Text.ToString());
@@ -185,7 +349,7 @@ namespace RecipeVectorSearch.UI
                 }
             };
             cancelButton.Accepting += (s, e) => Application.RequestStop(dialog);
-            
+
             dialog.Add(
                 new Label()
                 {
@@ -196,17 +360,17 @@ namespace RecipeVectorSearch.UI
                 connField,
                 saveButton,
                 cancelButton);
-                
+
             Application.Run(dialog);
         }
 
         private void SearchRecipesDialog()
         {
-            var dialog = new Dialog{Title = "Search Recipes", Width = Dim.Fill() - 2, Height = Dim.Fill() - 2};
-            var ingredientsLabel = new Label{Text = "Enter ingredients (comma-separated):", X = 1, Y = 1};
-            var ingredientsField = new TextField{X = 1, Y = 2, Width = Dim.Fill() - 2};
+            var dialog = new Dialog { Title = "Search Recipes", Width = Dim.Fill() - 2, Height = Dim.Fill() - 2 };
+            var ingredientsLabel = new Label { Text = "Enter ingredients (comma-separated):", X = 1, Y = 1 };
+            var ingredientsField = new TextField { X = 1, Y = 2, Width = Dim.Fill() - 2 };
 
-            var searchButton = new Button{Text = "Search",X = 1,Y = 4};
+            var searchButton = new Button { Text = "Search", X = 1, Y = 4 };
 
             ingredientsField.KeyDownNotHandled += (s, key) =>
             {
@@ -214,9 +378,9 @@ namespace RecipeVectorSearch.UI
                 {
                     searchButton.InvokeCommand(Command.Accept);
                 }
-            };            
-            
-            var cancelButton = new Button{Text = "Cancel",X = Pos.Right(searchButton) + 3,Y = 4};
+            };
+
+            var cancelButton = new Button { Text = "Cancel", X = Pos.Right(searchButton) + 3, Y = 4 };
 
             bool isWideScreen = Application.Driver.Cols > Application.Driver.Rows * 1.8;
             var resultsFrame = new FrameView()
@@ -236,12 +400,13 @@ namespace RecipeVectorSearch.UI
                 Width = isWideScreen ? Dim.Percent(50) - 2 : Dim.Fill() - 1,
                 Height = isWideScreen ? Dim.Fill() : Dim.Percent(50) - 3
             };
-            
-            var resultsView = new ListView{X = 0,Y = 0,Width = Dim.Fill(),Height = Dim.Fill()};
 
-            Label directionsLabel = new Label(){Text = "Directions will be shown here",X = 0,Width = Dim.Fill(),Height = Dim.Fill()};
+            var resultsView = new ListView { X = 0, Y = 0, Width = Dim.Fill(), Height = Dim.Fill() };
 
-            searchButton.Accepting += (s,e) => {
+            Label directionsLabel = new Label() { Text = "Directions will be shown here", X = 0, Width = Dim.Fill(), Height = Dim.Fill() };
+
+            searchButton.Accepting += (s, e) =>
+            {
                 var ingredientsText = ingredientsField.Text.ToString();
                 if (string.IsNullOrWhiteSpace(ingredientsText))
                 {
@@ -283,7 +448,7 @@ namespace RecipeVectorSearch.UI
                 }
             };
 
-            cancelButton.Accepting += (s,e) => dialog.RequestStop();
+            cancelButton.Accepting += (s, e) => dialog.RequestStop();
 
             resultsFrame.Add(resultsView);
             directionsFrame.Add(directionsLabel);
@@ -301,14 +466,14 @@ namespace RecipeVectorSearch.UI
                 Width = 60,
                 Height = 12
             };
-            
+
             var csvPathLabel = new Label()
             {
                 Title = "CSV File Path:",
                 X = 1,
                 Y = 1
             };
-            
+
             var csvPathField = new TextField()
             {
                 Text = "recipes.csv",
@@ -316,7 +481,7 @@ namespace RecipeVectorSearch.UI
                 Y = 2,
                 Width = Dim.Fill() - 12
             };
-            
+
             var browseButton = new Button()
             {
                 Text = "Browse",
@@ -324,15 +489,16 @@ namespace RecipeVectorSearch.UI
                 Y = 2,
                 Width = 10
             };
-            
-            browseButton.Accepting += (s,e) => {
+
+            browseButton.Accepting += (s, e) =>
+            {
                 var openDialog = new OpenDialog()
                 {
                     Title = "Select CSV File",
                 };
                 openDialog.AllowedTypes = new() { new AllowedType("Recipe CSV File", ".csv") };
                 Application.Run(openDialog);
-                
+
                 if (!openDialog.Canceled && !string.IsNullOrEmpty(openDialog.Path))
                 {
                     csvPathField.Text = openDialog.Path;
@@ -361,7 +527,7 @@ namespace RecipeVectorSearch.UI
                 X = 1,
                 Y = 6
             };
-            
+
             var cancelButton = new Button
             {
                 Text = "Cancel",
@@ -369,7 +535,8 @@ namespace RecipeVectorSearch.UI
                 Y = 6
             };
 
-            loadButton.Accepting += async (s,e) => {
+            loadButton.Accepting += async (s, e) =>
+            {
                 loadButton.Enabled = false;
                 progressLabel.Visible = true;
 

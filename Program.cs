@@ -20,7 +20,7 @@ namespace RecipeVectorSearch
                 using var databaseService = new DatabaseService(ConnectionString, embeddingService);
 
                 // 2. Initialize and run the UI, injecting the required services.
-                var tui = new RecipeTUI(databaseService);
+                var tui = new RecipeTUI(databaseService, embeddingService);
                 tui.Run();
             }
             catch (Exception ex)

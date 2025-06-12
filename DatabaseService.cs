@@ -16,14 +16,14 @@ namespace RecipeVectorSearch
     internal class DatabaseService : IDisposable
     {
         private const string DbName = "recipes_db";
-        private readonly EmbeddingService _embeddingService;
+        private readonly EmbeddingService embeddingService;
         private NpgsqlDataSource dataSource;
         private string connectionString;
 
         public DatabaseService(string connectionString, EmbeddingService embeddingService)
         {
             this.connectionString = connectionString;
-            _embeddingService = embeddingService;
+            this.embeddingService = embeddingService;
             dataSource = BuildDataSource(connectionString);
         }
 
@@ -125,7 +125,7 @@ namespace RecipeVectorSearch
                     var nerIngredients = JsonSerializer.Deserialize<string[]>(recipe.NER);
                     if (nerIngredients == null || nerIngredients.Length == 0) return;
 
-                    if (!_embeddingService.TryGenerateEmbedding(nerIngredients, out var embeddingTensor) || embeddingTensor == null)
+                    if (!embeddingService.TryGenerateEmbedding(nerIngredients, out var embeddingTensor) || embeddingTensor == null)
                     {
                         return; // Skip if embedding fails
                     }
@@ -159,7 +159,7 @@ namespace RecipeVectorSearch
 
         public List<RecipeResult> SearchSimilarRecipes(string[] queryIngredients, int limit = 20)
         {
-            if (!_embeddingService.TryGenerateEmbedding(queryIngredients, out var queryEmbeddingTensor) || queryEmbeddingTensor == null)
+            if (!embeddingService.TryGenerateEmbedding(queryIngredients, out var queryEmbeddingTensor) || queryEmbeddingTensor == null)
             {
                 throw new ArgumentException("Failed to generate embedding for query ingredients.");
             }
@@ -189,7 +189,7 @@ namespace RecipeVectorSearch
 
         private static string JsonToString(string s)
         {
-            string[]? deserialized = JsonSerializer.Deserialize<string[]>(s);
+            string[] deserialized = JsonSerializer.Deserialize<string[]>(s);
             return string.Join("\n", deserialized ?? Array.Empty<string>());
         }
 

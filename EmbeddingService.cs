@@ -1,3 +1,4 @@
+using CsvHelper;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using Microsoft.ML.Tokenizers;
@@ -12,10 +13,10 @@ namespace RecipeVectorSearch
     /// </summary>
     internal class EmbeddingService : IDisposable
     {
-        private readonly InferenceSession _onnxSession;
-        private readonly BertTokenizer _tokenizer;
+        private readonly InferenceSession onnxSession;
+        private readonly BertTokenizer tokenizer;
 
-        public EmbeddingService(string modelPath, string tokenPath)
+        public EmbeddingService(string modelPath, string tokenPath, ExecutionProvider provider = ExecutionProvider.CPU)
         {
             if (!File.Exists(modelPath) || !File.Exists(tokenPath))
             {
@@ -23,13 +24,30 @@ namespace RecipeVectorSearch
             }
 
             var options = new SessionOptions();
-            // Append execution providers if desired (e.g., for GPU acceleration)
-            // options.AppendExecutionProvider_OpenVINO("GPU"); 
-            _onnxSession = new InferenceSession(modelPath, options);
-            _tokenizer = BertTokenizer.Create(tokenPath);
+            AppendExecutionProvider(options, provider);
+            onnxSession = new InferenceSession(modelPath, options);
+            tokenizer = BertTokenizer.Create(tokenPath);
         }
 
-        public bool TryGenerateEmbedding(string[] ingredients, out DenseTensor<float>? embedding)
+        private void AppendExecutionProvider(SessionOptions options, ExecutionProvider provider)
+        {
+            switch (provider)
+            {
+                case ExecutionProvider.CPU:
+                    options.AppendExecutionProvider_OpenVINO("CPU");
+                    break;
+                case ExecutionProvider.GPU:
+                    options.AppendExecutionProvider_OpenVINO("GPU");
+                    break;
+                case ExecutionProvider.NPU:
+                    options.AppendExecutionProvider_OpenVINO("NPU");
+                    break;
+                default:
+                    throw new NotSupportedException($"Execution provider '{provider}' is not supported.");
+            }
+        }
+
+        public bool TryGenerateEmbedding(string[] ingredients, out DenseTensor<float> embedding)
         {
             var inputText = string.Join(" ", ingredients);
             if (string.IsNullOrWhiteSpace(inputText))
@@ -37,7 +55,7 @@ namespace RecipeVectorSearch
                 embedding = null;
                 return false;
             }
-            
+
             DenseTensor<long> inputTensor = Tokenize(inputText);
             DenseTensor<long> attentionMask = CreateAttentionMask(inputTensor);
 
@@ -49,7 +67,7 @@ namespace RecipeVectorSearch
 
             try
             {
-                using var results = _onnxSession.Run(inputs);
+                using var results = onnxSession.Run(inputs);
                 // The embedding is typically the first or second result, depending on the model.
                 // It is often the "last_hidden_state" or a pooled output. Adjust the index if necessary.
                 var lastHiddenState = (DenseTensor<float>)results[0].Value;
@@ -67,7 +85,7 @@ namespace RecipeVectorSearch
 
         private DenseTensor<long> Tokenize(string text)
         {
-            IReadOnlyList<long> encoded = _tokenizer.EncodeToIds(text).Select(i => (long)i).ToList();
+            IReadOnlyList<long> encoded = tokenizer.EncodeToIds(text).Select(i => (long)i).ToList();
             var result = new DenseTensor<long>(new[] { 1, encoded.Count });
             for (int i = 0; i < encoded.Count; i++)
             {
@@ -85,13 +103,13 @@ namespace RecipeVectorSearch
             }
             return attentionMask;
         }
-        
+
         private static DenseTensor<float> MeanPooling(DenseTensor<float> lastHiddenState, DenseTensor<long> attentionMask)
         {
             int batchSize = lastHiddenState.Dimensions[0];
             int sequenceLength = lastHiddenState.Dimensions[1];
             int hiddenSize = lastHiddenState.Dimensions[2];
-            
+
             var pooledOutput = new DenseTensor<float>(new[] { batchSize, hiddenSize });
 
             for (int i = 0; i < batchSize; i++)
@@ -109,7 +127,7 @@ namespace RecipeVectorSearch
                     }
                 }
 
-                if(tokenCount > 0)
+                if (tokenCount > 0)
                 {
                     for (int k = 0; k < hiddenSize; k++)
                     {
@@ -123,7 +141,7 @@ namespace RecipeVectorSearch
 
         public void Dispose()
         {
-            _onnxSession?.Dispose();
+            onnxSession?.Dispose();
             GC.SuppressFinalize(this);
         }
     }
