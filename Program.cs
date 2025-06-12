@@ -16,7 +16,7 @@ namespace RecipeVectorSearch
             {
                 // 1. Initialize services
                 // The EmbeddingService is created once and passed to the DatabaseService.
-                using var embeddingService = new EmbeddingService(ModelPath, TokenPath);
+                using var embeddingService = new EmbeddingService(ModelPath, TokenPath, ExecutionProvider.GPU);
                 using var databaseService = new DatabaseService(ConnectionString, embeddingService);
 
                 // 2. Initialize and run the UI, injecting the required services.

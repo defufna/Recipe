@@ -22,8 +22,10 @@ namespace RecipeVectorSearch
         
         public static Benchmark Run(ExecutionProvider provider, Action<float> progressCallback, int parallelism = 1)
         {
-            File.AppendAllText("debug.txt", "Starting benchmark with parallelism: " + parallelism + Environment.NewLine);
-            string[] mockIngridients = ["carrot", "potato", "onion"];
+            string[] mockIngridients = ["carrot", "potato", "onion", "garlic", "tomato", "chicken", "beef", "pork", "fish", "rice", "pasta", "bread",
+                                        "cheese", "egg", "milk", "yogurt", "spinach", "broccoli", "cabbage", "lettuce", "pepper", "cucumber", "zucchini",
+                                        "eggplant", "mushroom", "apple", "banana", "orange", "grape", "strawberry", "blueberry", "kiwi", "peach", "pear", 
+                                        "plum", "watermelon", "lemon", "lime"];
 
             EmbeddingService embeddingService = new EmbeddingService("minilm_onnx/model.onnx", "minilm_onnx/vocab.txt", provider);
             CancellationTokenSource cts = new CancellationTokenSource();
@@ -49,14 +51,20 @@ namespace RecipeVectorSearch
                 threads[i] = new Thread(() =>
                 {
                     long localCount = 0;
+                    Random random = new Random();
+                    string[] shuffledIngridients = mockIngridients.Clone() as string[];
+                    string[] pickedIngredients = new string[10];
+
                     while (!cts.Token.IsCancellationRequested)
                     {
-                        if (embeddingService.TryGenerateEmbedding(mockIngridients, out DenseTensor<float> embedding))
+                        ShuffleAndPick(random, shuffledIngridients, pickedIngredients);
+
+                        if (embeddingService.TryGenerateEmbedding(pickedIngredients, out DenseTensor<float> embedding))
                         {
                             localCount++;
                         }
-                        
-                        if((localCount & 64) == 0)
+
+                        if ((localCount & 64) == 0)
                         {
                             Interlocked.Add(ref count, localCount);
                             localCount = 0;
@@ -77,6 +85,18 @@ namespace RecipeVectorSearch
             }
 
             return new Benchmark(WaitAll, cts);
+        }
+
+        private static void ShuffleAndPick(Random random, string[] source, string[] target)
+        {
+            for (int i = 0; i < target.Length; i++)
+            {
+                int index = random.Next(i, source.Length);
+                target[i] = source[index];
+                string temp = source[index];
+                source[index] = source[i];
+                source[i] = temp;
+            }
         }
     }
 

@@ -120,7 +120,7 @@ namespace RecipeVectorSearch
             try
             {
 
-                await Parallel.ForEachAsync(recipes, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = token }, async (recipe, token) =>
+                await Parallel.ForEachAsync(recipes, new ParallelOptions { MaxDegreeOfParallelism = 2, CancellationToken = token }, async (recipe, token) =>
                 {
                     var nerIngredients = JsonSerializer.Deserialize<string[]>(recipe.NER);
                     if (nerIngredients == null || nerIngredients.Length == 0) return;
