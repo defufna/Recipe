@@ -5,17 +5,35 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>disable</Nullable>
+    <!-- Define the default InferenceRuntime -->
+    <InferenceRuntime Condition="'$(InferenceRuntime)' == ''">ONNXRuntime</InferenceRuntime>
+    <!-- Define conditional compilation symbols -->
+    <DefineConstants Condition="'$(InferenceRuntime)' == 'OpenVINO'">$(DefineConstants);OPENVINO</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug' or '$(Configuration)' == 'Release'">
+    <!-- Ensure InferenceRuntime is set for standard configurations -->
+    <InferenceRuntime Condition="'$(InferenceRuntime)' == ''">ONNXRuntime</InferenceRuntime>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="CsvHelper" Version="33.0.1" />
-    <PackageReference Include="Intel.ML.OnnxRuntime.OpenVino" Version="1.22.0" />
-    <PackageReference Include="Microsoft.ML" Version="4.0.2" />    
-    <PackageReference Include="Microsoft.ML.OnnxRuntime.Managed" Version="1.22.0" />
+    <PackageReference Include="Microsoft.ML" Version="4.0.2" />
     <PackageReference Include="Microsoft.ML.Tokenizers" Version="1.0.2" />
     <PackageReference Include="Npgsql" Version="9.0.3" />
     <PackageReference Include="Pgvector" Version="0.3.2" />
     <PackageReference Include="Terminal.Gui" Version="2.0.0-prealpha.*" />
+  </ItemGroup>
+
+  <!-- ONNXRuntime configuration (default) -->
+  <ItemGroup Condition="'$(InferenceRuntime)' == 'ONNXRuntime'">
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.22.0" />
+  </ItemGroup>
+
+  <!-- OpenVINO configuration -->
+  <ItemGroup Condition="'$(InferenceRuntime)' == 'OpenVINO'">
+    <PackageReference Include="Intel.ML.OnnxRuntime.OpenVino" Version="1.22.0" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.Managed" Version="1.22.0" />
   </ItemGroup>
 
 </Project>

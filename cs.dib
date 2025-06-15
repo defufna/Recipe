@@ -6,6 +6,7 @@
 
 #r "nuget:Microsoft.ML"
 #r "nuget:Microsoft.ML.OnnxRuntime"
+
 #r "nuget:Microsoft.ML.Tokenizers"
 
 #!csharp
@@ -13,6 +14,10 @@
 using Microsoft.ML.Tokenizers;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
+
+#!csharp
+
+OrtEnv.Instance().GetAvailableProviders()
 
 #!csharp
 
@@ -24,17 +29,13 @@ var inputIds = tokenizer.EncodeToIds("This is an example sentence").Select(x=>(l
 
 #!csharp
 
-var inputIds = tokenizer.EncodeToIds("This is an example sentence").ToArray<int>();
-new DenseTensor<int>(inputIds, new int[]{1, inputIds.Count})
-
-#!csharp
-
 var onnxSession = new InferenceSession("./minilm_onnx/model.onnx");
 
 #!csharp
 
 var inputTensor = new DenseTensor<long>(inputIds, new int[] { 1, inputIds.Length });
 var attention = new DenseTensor<long>(Enumerable.Repeat(1L, inputIds.Length).ToArray(), new int[] { 1, inputIds.Length });
+var tokenTypeIds = new DenseTensor<long>(Enumerable.Repeat(0L, inputIds.Length).ToArray(), new int[] { 1, inputIds.Length });
 
 #!csharp
 
@@ -45,7 +46,9 @@ inputTensor[0, 2]
 var inputs = new List<NamedOnnxValue>
 {
     NamedOnnxValue.CreateFromTensor("input_ids", inputTensor), 
-    NamedOnnxValue.CreateFromTensor("attention_mask",  attention)    // Add attention_mask and token_type_ids if required by your model
+    NamedOnnxValue.CreateFromTensor("attention_mask",  attention),    // Add attention_mask and token_type_ids if required by your model
+    NamedOnnxValue.CreateFromTensor("token_type_ids",  tokenTypeIds)    // Add attention_mask and token_type_ids if required by your model
+
 };
 
 #!csharp

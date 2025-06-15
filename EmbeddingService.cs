@@ -24,7 +24,9 @@ namespace RecipeVectorSearch
             }
 
             var options = new SessionOptions();
+            #if OPENVINO
             AppendExecutionProvider(options, provider);
+            #endif
             onnxSession = new InferenceSession(modelPath, options);
             tokenizer = BertTokenizer.Create(tokenPath);
         }
@@ -58,12 +60,18 @@ namespace RecipeVectorSearch
 
             DenseTensor<long> inputTensor = Tokenize(inputText);
             DenseTensor<long> attentionMask = CreateAttentionMask(inputTensor);
+            DenseTensor<long> tokenTypeIds = CreateTokenTypeIds(inputTensor);
 
             var inputs = new List<NamedOnnxValue>
             {
                 NamedOnnxValue.CreateFromTensor("input_ids", inputTensor),
-                NamedOnnxValue.CreateFromTensor("attention_mask", attentionMask)
+                NamedOnnxValue.CreateFromTensor("attention_mask", attentionMask),
             };
+
+            if (onnxSession.InputMetadata.TryGetValue("token_type_ids", out var tokenTypeIdMeta))
+            {                
+                inputs.Add(NamedOnnxValue.CreateFromTensor("token_type_ids", tokenTypeIds));
+            }
 
             try
             {
@@ -81,6 +89,16 @@ namespace RecipeVectorSearch
                 embedding = null;
                 return false;
             }
+        }
+
+        private DenseTensor<long> CreateTokenTypeIds(DenseTensor<long> inputTensor)
+        {
+            var tokenTypeIds = new DenseTensor<long>(inputTensor.Dimensions);
+            for (int i = 0; i < inputTensor.Length; i++)
+            {
+                tokenTypeIds[0, i] = 0; // A mask of 1s for all input tokens.
+            }
+            return tokenTypeIds;
         }
 
         private DenseTensor<long> Tokenize(string text)

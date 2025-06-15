@@ -130,6 +130,10 @@ namespace RecipeVectorSearch.UI
                 Height = Dim.Percent(80)
             };
 
+            Pos parallelismLabelY = 1;
+
+            #if OPENVINO
+
             // 1. Dropdown for CPU/GPU/NPU selection
             var hardwareLabel = new Label
             {
@@ -137,6 +141,7 @@ namespace RecipeVectorSearch.UI
                 X = 1,
                 Y = 1
             };
+
             dialog.Add(hardwareLabel);
 
             var hardwareRadioGroup = new RadioGroup()
@@ -151,13 +156,15 @@ namespace RecipeVectorSearch.UI
             };
 
             dialog.Add(hardwareRadioGroup);
+            parallelismLabelY = Pos.Bottom(hardwareRadioGroup) + 1;
+            #endif
 
             // Add paralelism slider
             var parallelismLabel = new Label
             {
                 Text = "Parallelism:",
                 X = 1,
-                Y = Pos.Bottom(hardwareRadioGroup) + 1
+                Y = parallelismLabelY
             };
             dialog.Add(parallelismLabel);
             var parallelismSlider = new Slider<int>([..GetParallelismOptions().Take(8)])
@@ -232,6 +239,7 @@ namespace RecipeVectorSearch.UI
                 var random = new Random();
                 float max = 0;
 
+                #if OPENVINO
                 ExecutionProvider provider = hardwareRadioGroup.SelectedItem switch
                 {
                     0 => ExecutionProvider.CPU,
@@ -239,6 +247,9 @@ namespace RecipeVectorSearch.UI
                     2 => ExecutionProvider.NPU,
                     _ => throw new InvalidOperationException("Invalid hardware selection")
                 };
+                #else
+                ExecutionProvider provider = ExecutionProvider.CPU; // Default to CPU if not using OpenVINO
+                #endif
 
                 benchmark = Benchmark.Run(provider, (count) =>
                 {

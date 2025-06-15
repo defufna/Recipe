@@ -26,7 +26,7 @@ namespace RecipeVectorSearch
             catch (Exception ex)
             {
                 // Fallback for critical initialization errors (e.g., model file not found)
-                Console.WriteLine($"A critical error occurred during startup: {ex.Message}");
+                Console.WriteLine($"A critical error occurred during startup:\n {ex}");
                 Console.WriteLine("Please ensure all configuration files (model, vocab) are in place.");
                 Console.WriteLine("Press any key to exit.");
                 Console.ReadKey();
