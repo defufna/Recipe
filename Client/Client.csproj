@@ -22,7 +22,8 @@
     <PackageReference Include="Microsoft.ML.Tokenizers" Version="1.0.2" />
     <PackageReference Include="Npgsql" Version="9.0.3" />
     <PackageReference Include="Pgvector" Version="0.3.2" />
-    <PackageReference Include="Terminal.Gui" Version="2.0.0-prealpha.*" />
+    <PackageReference Include="Terminal.Gui" Version="2.0.0-alpha.*" />
+    <PackageReference Include="VeloxDB.Protocol" Version="0.5.0" />
   </ItemGroup>
 
   <!-- ONNXRuntime configuration (default) -->
@@ -34,6 +35,9 @@
   <ItemGroup Condition="'$(InferenceRuntime)' == 'OpenVINO'">
     <PackageReference Include="Intel.ML.OnnxRuntime.OpenVino" Version="1.22.0" />
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Managed" Version="1.22.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\VlxAPI\VlxAPI.csproj" />
   </ItemGroup>
 
 </Project>

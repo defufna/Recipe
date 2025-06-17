@@ -1,6 +1,8 @@
 using RecipeVectorSearch.Data;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Text.Json;
+using System.Threading.Tasks;
 using Terminal.Gui;
 
 namespace RecipeVectorSearch.UI
@@ -10,13 +12,16 @@ namespace RecipeVectorSearch.UI
     /// </summary>
     internal class RecipeTUI
     {
-        private readonly DatabaseService dbService;
+        private readonly DatabaseServiceCollection dbsCollection;
+        private IDatabaseService dbService;
         private readonly EmbeddingService embeddingService;
 
-        public RecipeTUI(DatabaseService dbService, EmbeddingService embeddingService)
+        public RecipeTUI(DatabaseServiceCollection dbsCollection, EmbeddingService embeddingService)
         {
-            this.dbService = dbService ?? throw new ArgumentNullException(nameof(dbService));
+            this.dbsCollection = dbsCollection ?? throw new ArgumentNullException(nameof(dbsCollection));
             this.embeddingService = embeddingService ?? throw new ArgumentNullException(nameof(embeddingService));
+
+            dbService = dbsCollection.Default;
         }
 
         /// <summary>
@@ -25,7 +30,7 @@ namespace RecipeVectorSearch.UI
         public void Run()
         {
             Application.Init();
-            
+
             var mainWindow = CreateMainWindow();
             Application.Run(mainWindow);
             Application.Shutdown();
@@ -34,7 +39,9 @@ namespace RecipeVectorSearch.UI
         private Window CreateMainWindow()
         {
             //File.AppendAllText("debug.txt", string.Join(',', ThemeManager.Themes.Keys)+ Environment.NewLine);
-
+            Label dbLabel = null;
+            Shortcut dbStatus = null;
+            
             var window = new Window()
             {
                 Title = "Recipe Vector Search",
@@ -61,7 +68,7 @@ namespace RecipeVectorSearch.UI
                         new MenuItem("Embedding _Benchmark", "", EmbeddingBenchmarkDialog),
                     }),
                     new MenuBarItem("Se_ttings", new MenuItem[] {
-                        new MenuItem("_Connection String", "", ConnectionStringDialog),
+                        new MenuItem("_Database", "", ShowDBSettingsDialog),
                     }),
                     new MenuBarItem("_Help", new MenuItem[] {
                         new MenuItem("_About", "", ShowAboutDialog),
@@ -90,25 +97,56 @@ namespace RecipeVectorSearch.UI
                 X = 2,
                 Y = 2,
                 Width = Dim.Fill() - 4,
-                Height = Dim.Fill() - 4
+                Height = Dim.Auto()
+            };
+
+            var connectedLabel = new Label()
+            {
+                Text = "Connected to: ",
+                X = Pos.Left(welcomeText),
+                Y = Pos.Bottom(welcomeText),
+            };
+
+            dbLabel = new Label()
+            {
+                Text = dbService.Name,
+                X = Pos.Right(connectedLabel),
+                Y = Pos.Top(connectedLabel)
             };
 
 #if DEBUG
             welcomeText.Text += $"\n\nDebug Mode: PID = {Environment.ProcessId}";
 #endif
             mainFrame.Add(welcomeText);
+            mainFrame.Add(connectedLabel);
+            mainFrame.Add(dbLabel);
             window.Add(mainFrame);
 
             window.Add(menuBar);
 
+            dbStatus = new Shortcut() { Title = dbService.Name, Action = ShowDBSettingsDialog};
             var statusBar = new StatusBar(new Shortcut[] {
                 new Shortcut(Key.F1, "Help", ShowAboutDialog),
                 new Shortcut(Key.F3, "Search Recipes", SearchRecipesDialog),
                 new Shortcut(Key.F10, "Quit", () => Application.RequestStop()),
+                dbStatus
             });
+
+            statusBar.AlignmentModes = AlignmentModes.IgnoreFirstOrLast;
             window.Add(statusBar);
 
             return window;
+
+            void UpdateLabel()
+            {
+                dbLabel.Text = dbService.Name;
+                dbStatus.Title = dbService.Name;
+            }
+
+            void ShowDBSettingsDialog()
+            {
+                DBSettingsDialog(UpdateLabel);
+            }
         }
 
         private IEnumerable<int> GetParallelismOptions()
@@ -132,7 +170,7 @@ namespace RecipeVectorSearch.UI
 
             Pos parallelismLabelY = 1;
 
-            #if OPENVINO
+#if OPENVINO
 
             // 1. Dropdown for CPU/GPU/NPU selection
             var hardwareLabel = new Label
@@ -157,7 +195,7 @@ namespace RecipeVectorSearch.UI
 
             dialog.Add(hardwareRadioGroup);
             parallelismLabelY = Pos.Bottom(hardwareRadioGroup) + 1;
-            #endif
+#endif
 
             // Add paralelism slider
             var parallelismLabel = new Label
@@ -167,7 +205,7 @@ namespace RecipeVectorSearch.UI
                 Y = parallelismLabelY
             };
             dialog.Add(parallelismLabel);
-            var parallelismSlider = new Slider<int>([..GetParallelismOptions().Take(8)])
+            var parallelismSlider = new Slider<int>([.. GetParallelismOptions().Take(8)])
             {
                 X = Pos.Right(parallelismLabel) + 2,
                 Y = Pos.Top(parallelismLabel),
@@ -239,7 +277,7 @@ namespace RecipeVectorSearch.UI
                 var random = new Random();
                 float max = 0;
 
-                #if OPENVINO
+#if OPENVINO
                 ExecutionProvider provider = hardwareRadioGroup.SelectedItem switch
                 {
                     0 => ExecutionProvider.CPU,
@@ -247,9 +285,9 @@ namespace RecipeVectorSearch.UI
                     2 => ExecutionProvider.NPU,
                     _ => throw new InvalidOperationException("Invalid hardware selection")
                 };
-                #else
+#else
                 ExecutionProvider provider = ExecutionProvider.CPU; // Default to CPU if not using OpenVINO
-                #endif
+#endif
 
                 benchmark = Benchmark.Run(provider, (count) =>
                 {
@@ -279,11 +317,11 @@ namespace RecipeVectorSearch.UI
 
         #region Action Handlers & Dialogs
 
-        private void HandleAction(Action action, string successMessage)
+        private async void HandleAction(Func<Task> action, string successMessage)
         {
             try
             {
-                action();
+                await action();
                 MessageBox.Query("Success", successMessage, "OK");
             }
             catch (Exception ex)
@@ -292,7 +330,7 @@ namespace RecipeVectorSearch.UI
             }
         }
 
-        private void HandleActionWithConfirm(string confirmMessage, Action action, string successMessage)
+        private void HandleActionWithConfirm(string confirmMessage, Func<Task> action, string successMessage)
         {
             var result = MessageBox.Query("Confirm", confirmMessage, "Yes", "No");
             if (result == 0)
@@ -314,20 +352,38 @@ namespace RecipeVectorSearch.UI
                 "OK");
         }
 
-        private void ConnectionStringDialog()
+        private void DBSettingsDialog(Action onChanged)
         {
             var dialog = new Dialog()
             {
-                Title = "Database Connection",
+                Title = "Database Settings",
                 Width = 60,
-                Height = 8
+                Height = 10
+            };
+
+            var dbLabel = new Label
+            {
+                Text = "Select Database:",
+                X = 1,
+                Y = 1,
+            };
+
+            var dbGroup = new RadioGroup()
+            {
+                X = Pos.Right(dbLabel) + 2,
+                Y = 1,
+                Width = Dim.Fill(),
+                Height = 1,
+                RadioLabels = dbsCollection.Databases.Select(dbs => dbs.Name).ToArray(),
+                SelectedItem = dbsCollection.Index(dbService),
+                Orientation = Orientation.Horizontal
             };
 
             var connField = new TextField()
             {
                 Text = dbService.GetConnectionString(),
                 X = 1,
-                Y = 2,
+                Y = Pos.Bottom(dbGroup)+1,
                 Width = Dim.Fill() - 2
             };
 
@@ -335,7 +391,7 @@ namespace RecipeVectorSearch.UI
             {
                 Text = "Save",
                 X = 1,
-                Y = 4,
+                Y = Pos.Bottom(connField) + 1,
                 IsDefault = true
             };
 
@@ -343,30 +399,43 @@ namespace RecipeVectorSearch.UI
             {
                 Text = "Cancel",
                 X = Pos.Right(saveButton) + 3,
-                Y = 4
+                Y = Pos.Top(saveButton)
             };
 
             saveButton.Accepting += (s, e) =>
             {
                 try
                 {
+                    dbService = dbsCollection.Databases[dbGroup.SelectedItem];
                     dbService.UpdateConnectionString(connField.Text.ToString());
-                    MessageBox.Query("Success", "Connection string updated!", "OK");
+                    MessageBox.Query("Success", "Database settings updated!", "OK");
                     Application.RequestStop(dialog);
+                    onChanged();
                 }
                 catch (Exception ex)
                 {
                     MessageBox.ErrorQuery("Error", $"Invalid connection string: {ex.Message}", "OK");
                 }
             };
-            cancelButton.Accepting += (s, e) => Application.RequestStop(dialog);
+            cancelButton.Accepting += (s, e) =>
+            {
+                e.Cancel = true;
+                dialog.RequestStop();
+            };
+
+            dbGroup.SelectedItemChanged += (s, e) =>
+            {
+                connField.Text = dbsCollection.Databases[e.SelectedItem].GetConnectionString();                
+            };
 
             dialog.Add(
+                dbLabel,
+                dbGroup,
                 new Label()
                 {
                     Text = "Connection String:",
                     X = 1,
-                    Y = 1
+                    Y = Pos.Bottom(dbGroup),
                 },
                 connField,
                 saveButton,
@@ -416,7 +485,7 @@ namespace RecipeVectorSearch.UI
 
             Label directionsLabel = new Label() { Text = "Directions will be shown here", X = 0, Width = Dim.Fill(), Height = Dim.Fill() };
 
-            searchButton.Accepting += (s, e) =>
+            searchButton.Accepting += async (s, e) =>
             {
                 var ingredientsText = ingredientsField.Text.ToString();
                 if (string.IsNullOrWhiteSpace(ingredientsText))
@@ -432,7 +501,7 @@ namespace RecipeVectorSearch.UI
                         .Where(s => !string.IsNullOrWhiteSpace(s))
                         .ToArray();
 
-                    List<RecipeResult> similarRecipes = dbService.SearchSimilarRecipes(queryIngredients, 20);
+                    List<RecipeResult> similarRecipes = await SearchSimilarRecipes(queryIngredients, 20);
                     var resultsList = new ObservableCollection<RecipeResult>(similarRecipes);
 
                     resultsView.SetSource(resultsList);
@@ -465,6 +534,16 @@ namespace RecipeVectorSearch.UI
             directionsFrame.Add(directionsLabel);
             dialog.Add(ingredientsLabel, ingredientsField, searchButton, cancelButton, resultsFrame, directionsFrame);
             Application.Run(dialog);
+        }
+
+        private async Task<List<RecipeResult>> SearchSimilarRecipes(string[] queryIngredients, int limit = 20)
+        {
+            if (!embeddingService.TryGenerateEmbedding(queryIngredients, out var queryEmbeddingTensor) || queryEmbeddingTensor == null)
+            {
+                throw new ArgumentException("Failed to generate embedding for query ingredients.");
+            }
+
+            return await dbService.SearchSimilarRecipes(queryEmbeddingTensor.ToArray(), limit);
         }
 
         private void LoadRecipesDialog()
@@ -562,7 +641,7 @@ namespace RecipeVectorSearch.UI
                 {
                     Stopwatch stopwatch = Stopwatch.StartNew();
                     var recipes = RecipeCsvReader.LoadRecipes(csvPath);
-                    long count = await dbService.StoreRecipes(recipes, progress: (currentCount) =>
+                    long count = await StoreRecipes(recipes, progress: (currentCount) =>
                     {
                         Application.Invoke(() =>
                         {
@@ -595,6 +674,53 @@ namespace RecipeVectorSearch.UI
             dialog.Add(csvPathLabel, csvPathField, browseButton, progressLabel, progressBar, loadButton, cancelButton);
             Application.Run(dialog);
         }
+        
+        private async Task<long> StoreRecipes(IEnumerable<Recipe> recipes, Action<long> progress, CancellationToken token)
+        {
+            long count = 0;
+
+            CancellationTokenSource cts = new CancellationTokenSource();
+
+            Task progressUpdater = Task.Run(async () =>
+            {
+                if (progress == null)
+                {
+                    return;
+                }
+
+                while (!cts.Token.IsCancellationRequested)
+                {
+                    progress?.Invoke(count);
+                    await Task.Delay(1000);
+                }
+            }, cts.Token);
+
+            try
+            {
+
+                await Parallel.ForEachAsync(recipes, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = token }, async (recipe, token) =>
+                {
+                    var nerIngredients = JsonSerializer.Deserialize<string[]>(recipe.NER);
+                    if (nerIngredients == null || nerIngredients.Length == 0) return;
+
+                    if (!embeddingService.TryGenerateEmbedding(nerIngredients, out var embeddingTensor) || embeddingTensor == null)
+                    {
+                        return; // Skip if embedding fails
+                    }
+
+                    await dbService.StoreRecipe(recipe, embeddingTensor, token);
+                    Interlocked.Increment(ref count);
+                });
+            }
+            finally
+            {
+                cts.Cancel();
+                await progressUpdater;
+            }
+
+            return count;
+        }
+
 
         #endregion
     }

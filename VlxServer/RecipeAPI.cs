@@ -48,30 +48,34 @@ public class RecipeApi
         Recipe.FromDTO(om, updatedRecipe, allowUpdate: true);
     }
 
+    [DbAPIOperation(OperationType = DbAPIOperationType.ReadWrite)]
+    public void Reset(ObjectModel om)
+    {
+        foreach (Recipe recipe in om.GetAllObjects<Recipe>())
+        {
+            recipe.Delete();
+        }
+    }
+
     [DbAPIOperation(OperationType = DbAPIOperationType.Read)]
-    public RecipeDTO[] SemanticSearch(ObjectModel om, float[] embedding, int limit = -1)
+    public RecipeResultDTO[] SemanticSearch(ObjectModel om, float[] embedding, int limit = -1)
     {
         IEnumerable<Recipe> recipes = om.GetAllObjects<Recipe>();
 
-        List<(float similarity, Recipe recipe)> result = new();
+        List<RecipeResultDTO> result = new();
 
         foreach (Recipe recipe in recipes)
         {
             float similarity = VectorHelper.CosineDistance(embedding, recipe.IngredientEmbedding);
-            result.Add((similarity, recipe));
+            result.Add(new RecipeResultDTO{Recipe = recipe.ToDTO(), Similarity = similarity });
         }
 
-        result.Sort((r1, r2) => MathF.Sign(r1.similarity - r2.similarity));
+        result.Sort((r1, r2) => MathF.Sign(r1.Similarity - r2.Similarity));
 
         if (limit == -1)
-            limit = result.Count;
+            return result.ToArray();
 
-        RecipeDTO[] resultDTO = new RecipeDTO[limit];
-
-        for (int i = 0; i < limit; i++)
-            resultDTO[i] = result[i].recipe.ToDTO();
-
-        return resultDTO;
+        return result.Take(limit).ToArray();
     }
 
     [DbAPIOperation(OperationType = DbAPIOperationType.ReadWrite)]
