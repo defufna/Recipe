@@ -1,0 +1,28 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"name":"csharp","languageName":"csharp"},{"name":"fsharp","languageName":"F#","aliases":["f#","fs"]},{"name":"html","languageName":"HTML"},{"name":"http","languageName":"HTTP"},{"name":"javascript","languageName":"JavaScript","aliases":["js"]},{"name":"mermaid","languageName":"Mermaid"},{"name":"pwsh","languageName":"PowerShell","aliases":["powershell"]},{"name":"value"}]}}
+
+#!csharp
+
+#!pwsh 
+dotnet build
+
+#!csharp
+
+#r "HSNW\bin\Debug\net9.0\HSNW.dll"
+
+#!csharp
+
+HSNW.HSNW hsnw = new HSNW.HSNW(4);
+
+#!csharp
+
+hsnw.Add([1, 2, 3, 4]);
+
+#!csharp
+
+hsnw.Add([22, 23, 43, 4]);
+
+#!csharp
+
+hsnw.Add([2, 4, 43, 4]);

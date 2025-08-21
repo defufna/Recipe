@@ -42,6 +42,18 @@ public class RecipeApi
         return recipe.ToDTO();
     }
 
+    [DbAPIOperation(OperationType = DbAPIOperationType.Read)]
+    public List<RecipeDTO> GetAllRecipes(ObjectModel om)
+    {
+        List<RecipeDTO> recipes = new();
+
+        foreach (Recipe recipe in om.GetAllObjects<Recipe>())
+        {
+            recipes.Add(recipe.ToDTO());
+        }
+        return recipes;
+    }
+
     [DbAPIOperation(OperationType = DbAPIOperationType.ReadWrite)]
     public void UpdateRecipe(ObjectModel om, RecipeDTO updatedRecipe) // Use void as return type for async method [26]
     {

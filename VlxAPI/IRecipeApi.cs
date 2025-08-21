@@ -10,6 +10,8 @@ public interface IRecipeApi
     DatabaseTask<long> CreateRecipe(RecipeDTO newRecipe);
     [DbAPIOperation(OperationType = DbAPIOperationType.Read)]
     DatabaseTask<RecipeDTO?> GetRecipe(long id);
+    [DbAPIOperation(OperationType = DbAPIOperationType.Read)]
+    DatabaseTask<List<RecipeDTO>> GetAllRecipes();
     [DbAPIOperation(OperationType = DbAPIOperationType.ReadWrite)]
     DatabaseTask UpdateRecipe(RecipeDTO updatedRecipe);
     [DbAPIOperation(OperationType = DbAPIOperationType.ReadWrite)]
