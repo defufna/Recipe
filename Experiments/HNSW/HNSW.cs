@@ -97,11 +97,11 @@ public class HNSWCollection
     {
         Nodes = new();
         this.NumNeighbors = numNeighbors;
-        this.NumNeighbors0 = (numNeighbors0 != -1)?numNeighbors0:numNeighbors*2;
+        this.NumNeighbors0 = (numNeighbors0 != -1) ? numNeighbors0 : numNeighbors * 2;
         this.EfConstruction = efConstruction;
     }
 
-    public int Count => new HashSet<Node>(Nodes.SelectMany(n => n)).Count;
+    public int Count => Nodes[0].Count;
 
     public string ToDot(int level)
     {
@@ -167,8 +167,9 @@ public class HNSWCollection
         {
             int numNeighbors = i == 0 ? NumNeighbors0 : NumNeighbors;
             NodeDistanceSet candidates = SearchLayer(vector, entryPoint, EfConstruction, i);
-            List<NodeWithDistance> neighbors = SelectNeighbors(vector, candidates, numNeighbors, i, true, false);
+            List<NodeWithDistance> neighbors = SelectNeighborsSimple(vector, candidates, numNeighbors); //SelectNeighbors(vector, candidates, numNeighbors, i, true, false);
 
+            //List<NodeWithDistance> neighbors = SelectNeighbors(vector, candidates, numNeighbors, i, true, false);
             foreach (var neighbor in neighbors)
             {
                 neighbor.Node.Neighbors[i].Add(node);
@@ -207,10 +208,64 @@ public class HNSWCollection
         }
 
         NodeDistanceSet set = new NodeDistanceSet(node.Node.Vector, node.Node.Neighbors[level]);
-        node.Node.Neighbors[level] = SelectNeighbors(node.Node.Vector, set, numNeighbors, level, true, false, node.Node).Select(x => x.Node).ToList();
+        //List<Node> newNeighbors = SelectNeighbors(node.Node.Vector, set, numNeighbors, level, true, false, node.Node).Select(x => x.Node).ToList();
+        List<Node> newNeighbors = SelectNeighborsSimple(node.Node.Vector, set, numNeighbors).Select(x => x.Node).ToList();
+
+        Debug.Assert(newNeighbors.Count != 0);
+
+        for (int i = 0; i < newNeighbors.Count; i++)
+        {
+            set.Remove(new NodeWithDistance(newNeighbors[i], 0));
+        }
+
+        bool IsFarther(NodeWithDistance first, Node second, float distance)
+        {
+            bool firstEmpty = first.Node.Neighbors[level].Count < numNeighbors;
+            bool secondEmpty = second.Neighbors[level].Count < numNeighbors;
+
+            if (firstEmpty == secondEmpty)
+            {
+                return first.Distance > distance;
+            }
+
+            return !firstEmpty;
+        }
+
+        // Find better place for removed connections, this is to prevent islands formation
+        foreach (var removed in set)
+        {
+            Debug.Assert(removed.Node.Id != node.Node.Id);
+
+            removed.Node.Neighbors[level].Remove(node.Node);
+            NodeWithDistance? nearest = null;
+            foreach (var neighbor in newNeighbors)
+            {
+                Debug.Assert(neighbor.Id != node.Node.Id);
+                float distance = DistanceCalculator.CosineDistance(neighbor.Vector, removed.Node.Vector);
+
+                if (nearest == null)
+                {
+                    nearest = new NodeWithDistance(neighbor, distance);
+                    continue;
+                }
+
+                if (IsFarther(nearest, neighbor, distance))
+                {
+                    nearest.Distance = distance;
+                    nearest.Node = neighbor;
+                }
+            }
+
+            Debug.Assert(nearest != null);
+            nearest.Node.Neighbors[level].Add(removed.Node);
+            removed.Node.Neighbors[level].Add(nearest.Node);
+        }
+
+        node.Node.Neighbors[level] = newNeighbors;
 
         foreach (var neighbor in node.Node.Neighbors[level])
         {
+            Debug.Assert(neighbor.Id != node.Node.Id);
             neighbor.Neighbors[level].Add(node.Node);
         }
     }
@@ -353,13 +408,45 @@ public class HNSWCollection
             Nearest = null;
         }
 
-        public bool Contains(NodeWithDistance item) => throw new NotSupportedException("Contains is not supported in CandidateCollection");
+        public bool Contains(NodeWithDistance item) => candidates.Contains(item);
+        public bool Contains(Node node) => candidates.Contains(new NodeWithDistance(node, 0));
 
         public void CopyTo(NodeWithDistance[] array, int arrayIndex) => candidates.CopyTo(array, arrayIndex);
 
         public IEnumerator<NodeWithDistance> GetEnumerator() => candidates.GetEnumerator();
 
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => candidates.GetEnumerator();
+    }
+  
+    public List<float[]> SearchExact(float[] q, int k)
+    {
+        IComparer<float> comparer = Comparer<float>.Create((x, y) => Math.Sign(y - x));
+        PriorityQueue<NodeWithDistance, float> pq = new PriorityQueue<NodeWithDistance, float>(comparer);
+        foreach (Node node in Nodes[0])
+        {
+            float distance = DistanceCalculator.CosineDistance(q, node.Vector);
+
+            if (pq.Count == k)
+            {
+                if (distance >= pq.Peek().Distance)
+                    continue;
+
+                pq.Dequeue();
+            }
+            pq.Enqueue(new NodeWithDistance(node, distance), distance);
+        }
+
+        List<float[]> result = new List<float[]>(k);
+        for (int i = 0; i < k && pq.Count > 0; i++)
+        {
+            var nearest = pq.Dequeue();
+            
+            result.Add(nearest.Node.Vector);
+        }
+
+        result.Reverse();
+        
+        return result;
     }
 
     public List<float[]> Search(float[] q, int k, int ef)
@@ -386,21 +473,83 @@ public class HNSWCollection
                     .ToList();
     }
 
+    public bool Verify()
+    {
+        Queue<(Node node, Node? origin)> toVisit = new();
+        HashSet<Node> visited = new HashSet<Node>();
+
+        List<string> errors = new List<string>();
+        for (int level = 0; level < Nodes.Count; level++)
+        {
+            visited.Clear();
+            toVisit.Clear();
+            int maxNeighbors = (level == 0) ? NumNeighbors0 : NumNeighbors;
+            toVisit.Enqueue((Nodes[level][0], null));
+
+            while (toVisit.Count > 0)
+            {
+                (Node node, Node? origin) = toVisit.Dequeue();
+                if (visited.Contains(node))
+                    continue;
+
+                visited.Add(node);
+
+                if (node.Neighbors[level].Count > maxNeighbors)
+                {
+                    errors.Add($"Node {node.Id} at level {level} has {node.Neighbors[level].Count} neighbors, exceeding the limit of {maxNeighbors}.");
+                }
+
+                bool hasOrigin = origin == null;
+                foreach (var neighbor in node.Neighbors[level])
+                {
+                    if (!visited.Contains(neighbor))
+                    {
+                        toVisit.Enqueue((neighbor, node));
+                    }
+
+                    if (!hasOrigin && neighbor == origin)
+                    {
+                        hasOrigin = true;
+                    }
+                }
+
+                if (!hasOrigin)
+                {
+                    errors.Add($"Node {node.Id} at level {level} does not have a back-reference to its origin node {origin?.Id}.");
+                }
+
+            }
+
+            if (visited.Count != Nodes[level].Count)
+            {
+                errors.Add($"Level {level} is not fully connected. Visited {visited.Count} out of {Nodes[level].Count} nodes.");
+            }
+        }
+
+        foreach (var error in errors)
+        {
+            Console.WriteLine(error);
+        }
+        return errors.Count == 0;
+
+    }
+
     private NodeDistanceSet SearchLayer(float[] q, Node entryPoint, int ef, int l)
     {
         NodeDistanceSet result = new(q);
-        result.Add(entryPoint);
-
+        
         if (entryPoint == null)
         {
             return result;
         }
 
+        result.Add(entryPoint);
         HashSet<Node> visited = new HashSet<Node>();
 
 
         NodeDistanceSet candidates = new(q);
         candidates.Add(entryPoint);
+        visited.Add(entryPoint);
 
         while (candidates.Count > 0)
         {
@@ -429,7 +578,6 @@ public class HNSWCollection
                     if (result.Count > ef)
                     {
                         result.PopFurthest();
-                        result.Add(nodeWithDistance);
                     }
                 }
             }
