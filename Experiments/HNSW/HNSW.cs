@@ -10,7 +10,7 @@ public class Node
     public int Id { get; private set; }
     public float[] Vector { get; set; }
 
-    public List<List<Node>> Neighbors { get; set; }
+    public List<HashSet<Node>> Neighbors { get; set; }
 
     public Node(float[] vector, int level, int id)
     {
@@ -18,7 +18,7 @@ public class Node
         this.Vector = vector;
         Neighbors = new();
         for (int i = 0; i < level + 1; i++)
-            Neighbors.Add(new List<Node>());
+            Neighbors.Add(new HashSet<Node>());
     }
 
     public IEnumerable<Node> GetNeighbors(int level)
@@ -91,7 +91,7 @@ public class HNSWCollection
 
     private Random random = new Random(13);
     private Node? entryPoint = null;
-    private int maxId = 1;
+    private int maxId = 0;
 
     public HNSWCollection(int numNeighbors, int numNeighbors0 = -1, int efConstruction = 10)
     {
@@ -149,7 +149,6 @@ public class HNSWCollection
         int level = (int)(-MathF.Log2(random.NextSingle()) * 0.3);
         var node = new Node(vector, level, maxId++);
 
-
         NodeDistanceSet nearest = new NodeDistanceSet(vector);
         int topLayer = Nodes.Count - 1;
 
@@ -167,11 +166,15 @@ public class HNSWCollection
         {
             int numNeighbors = i == 0 ? NumNeighbors0 : NumNeighbors;
             NodeDistanceSet candidates = SearchLayer(vector, entryPoint, EfConstruction, i);
-            List<NodeWithDistance> neighbors = SelectNeighborsSimple(vector, candidates, numNeighbors); //SelectNeighbors(vector, candidates, numNeighbors, i, true, false);
+            HashSet<NodeWithDistance> neighbors = SelectNeighborsSimple(vector, candidates, numNeighbors); //SelectNeighbors(vector, candidates, numNeighbors, i, true, false);
 
-            //List<NodeWithDistance> neighbors = SelectNeighbors(vector, candidates, numNeighbors, i, true, false);
             foreach (var neighbor in neighbors)
             {
+                if (neighbor.Node.Neighbors[i].Contains(node))
+                {
+                    continue;
+                }
+
                 neighbor.Node.Neighbors[i].Add(node);
                 node.Neighbors[i].Add(neighbor.Node);
 
@@ -202,20 +205,23 @@ public class HNSWCollection
     private void RefreshNeighborConnections(NodeWithDistance node, int level, int numNeighbors)
     {
         Debug.Assert(!node.Node.Neighbors[level].Contains(node.Node), "Node should not be in its own neighbors list");
-        foreach (var neighbor in node.Node.Neighbors[level])
-        {
-            neighbor.Neighbors[level].Remove(node.Node);
-        }
+        // foreach (var neighbor in node.Node.Neighbors[level])
+        // {
+        //     neighbor.Neighbors[level].Remove(node.Node);
+        // }
 
-        NodeDistanceSet set = new NodeDistanceSet(node.Node.Vector, node.Node.Neighbors[level]);
         //List<Node> newNeighbors = SelectNeighbors(node.Node.Vector, set, numNeighbors, level, true, false, node.Node).Select(x => x.Node).ToList();
-        List<Node> newNeighbors = SelectNeighborsSimple(node.Node.Vector, set, numNeighbors).Select(x => x.Node).ToList();
-
+        NodeDistanceSet set = new NodeDistanceSet(node.Node.Vector, node.Node.Neighbors[level]);
+        HashSet<Node> newNeighbors = SelectNeighborsSimple(node.Node.Vector, set, numNeighbors, node.Node).Select(x => x.Node).ToHashSet();
         Debug.Assert(newNeighbors.Count != 0);
+        List<Node> removedList = new List<Node>();
 
-        for (int i = 0; i < newNeighbors.Count; i++)
+        foreach (Node neighbor in node.Node.Neighbors[level])
         {
-            set.Remove(new NodeWithDistance(newNeighbors[i], 0));
+            if (!newNeighbors.Contains(neighbor))
+            {
+                removedList.Add(neighbor);
+            }
         }
 
         bool IsFarther(NodeWithDistance first, Node second, float distance)
@@ -232,16 +238,21 @@ public class HNSWCollection
         }
 
         // Find better place for removed connections, this is to prevent islands formation
-        foreach (var removed in set)
+        foreach (var removed in removedList)
         {
-            Debug.Assert(removed.Node.Id != node.Node.Id);
+            Debug.Assert(removed.Id != node.Node.Id);
 
-            removed.Node.Neighbors[level].Remove(node.Node);
+            removed.Neighbors[level].Remove(node.Node);
+
             NodeWithDistance? nearest = null;
             foreach (var neighbor in newNeighbors)
             {
+                if(neighbor.Neighbors[level].Contains(removed))
+                {
+                    goto skip;
+                }
                 Debug.Assert(neighbor.Id != node.Node.Id);
-                float distance = DistanceCalculator.CosineDistance(neighbor.Vector, removed.Node.Vector);
+                float distance = DistanceCalculator.CosineDistance(neighbor.Vector, removed.Vector);
 
                 if (nearest == null)
                 {
@@ -257,13 +268,14 @@ public class HNSWCollection
             }
 
             Debug.Assert(nearest != null);
-            nearest.Node.Neighbors[level].Add(removed.Node);
-            removed.Node.Neighbors[level].Add(nearest.Node);
+            nearest.Node.Neighbors[level].Add(removed);
+            removed.Neighbors[level].Add(nearest.Node);
+        skip:;
         }
 
         node.Node.Neighbors[level] = newNeighbors;
 
-        foreach (var neighbor in node.Node.Neighbors[level])
+        foreach (var neighbor in newNeighbors)
         {
             Debug.Assert(neighbor.Id != node.Node.Id);
             neighbor.Neighbors[level].Add(node.Node);
@@ -417,7 +429,7 @@ public class HNSWCollection
 
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => candidates.GetEnumerator();
     }
-  
+
     public List<float[]> SearchExact(float[] q, int k)
     {
         IComparer<float> comparer = Comparer<float>.Create((x, y) => Math.Sign(y - x));
@@ -440,12 +452,12 @@ public class HNSWCollection
         for (int i = 0; i < k && pq.Count > 0; i++)
         {
             var nearest = pq.Dequeue();
-            
+
             result.Add(nearest.Node.Vector);
         }
 
         result.Reverse();
-        
+
         return result;
     }
 
@@ -537,7 +549,7 @@ public class HNSWCollection
     private NodeDistanceSet SearchLayer(float[] q, Node entryPoint, int ef, int l)
     {
         NodeDistanceSet result = new(q);
-        
+
         if (entryPoint == null)
         {
             return result;
@@ -586,10 +598,16 @@ public class HNSWCollection
         return result;
     }
 
-    private List<NodeWithDistance> SelectNeighborsSimple(float[] q, NodeDistanceSet candidates, int m)
+    private HashSet<NodeWithDistance> SelectNeighborsSimple(float[] q, NodeDistanceSet candidates, int m, Node? exclude = null)
     {
         int count = Math.Min(candidates.Count, m);
-        List<NodeWithDistance> result = candidates.OrderBy(r => r.Distance).Take(count).ToList();
+        IEnumerable<NodeWithDistance> filteredCandidates = candidates;
+        if (exclude != null)
+        {
+            filteredCandidates = filteredCandidates.Where(c => c.Node != exclude);
+        }
+
+        HashSet<NodeWithDistance> result = filteredCandidates.OrderBy(r => r.Distance).Take(count).ToHashSet();
         return result;
     }
 

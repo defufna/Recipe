@@ -12,7 +12,7 @@ public class HNSWTest
         HNSWCollection hnsw = new HNSWCollection(4);
         List<float[]> vectors = new List<float[]>(count);
 
-        Random random = new Random(13);
+        Random random = new Random();
         for (int i = 0; i < count; i++)
         {
             float[] vector = new float[256];
@@ -42,9 +42,8 @@ public class HNSWTest
             {
                 equalCount++;
             }
-        }   
-
-        
+        }
+        Console.WriteLine($"Equal neighbors: {equalCount} out of {neighbors.Count}");
     }
 
     private bool VectorEqual(float[] u, float[] v)

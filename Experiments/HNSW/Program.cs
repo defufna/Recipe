@@ -7,10 +7,10 @@ using HNSW;
 
 HNSWCollection hnsw = new HNSWCollection(4);
 hnsw = new HNSWCollection(32, 64, 40);
-const int count = 10000;
+const int count = 1000;
 const int dim = 128;
 
-Random random = new Random();
+Random random = new Random(94);
 Stopwatch stopwatch = Stopwatch.StartNew();
 for (int i = 0; i < count; i++)
 {
@@ -18,28 +18,38 @@ for (int i = 0; i < count; i++)
     hnsw.Add(vector);
 }
 
+for(int i = 0; i < hnsw.Nodes.Count; i++)
+{
+    File.WriteAllText($"/tmp/hnsw/clr/level_{i}.dot", hnsw.ToDot(i));
+}
+
 Console.WriteLine($"HNSW Constructed in {stopwatch.ElapsedMilliseconds}");
 hnsw.Verify();
 
-float[] q = RandomVector(random);
-
-List<float[]> results = hnsw.Search(q, 10, 16);
-List<float[]> exactResults = hnsw.SearchExact(q, 10);
-
-
-float recall = CalculateRecall(results, exactResults);
-
-foreach (var r in results)
+float sum = 0;
+for (int i = 0; i < 100; i++)
 {
-    float distance = DistanceCalculator.CosineDistance(q, r);
-    Console.WriteLine($"Result: {string.Join(", ", distance)}");
+    float[] q = RandomVector(random);
+
+    List<float[]> results = hnsw.Search(q, 10, 16);
+    List<float[]> exactResults = hnsw.SearchExact(q, 10);
+    float[] distances = exactResults.Select(v => DistanceCalculator.CosineDistance(q, v)).ToArray();
+    sum += CalculateRecall(results, exactResults);
 }
 
-foreach (var r in exactResults)
-{
-    float distance = DistanceCalculator.CosineDistance(q, r);
-    Console.WriteLine($"Exact: {string.Join(", ", distance)}");
-}
+float recall = sum / 100;
+
+// foreach (var r in results)
+// {
+//     float distance = DistanceCalculator.CosineDistance(q, r);
+//     Console.WriteLine($"Result: {string.Join(", ", distance)}");
+// }
+
+// foreach (var r in exactResults)
+// {
+//     float distance = DistanceCalculator.CosineDistance(q, r);
+//     Console.WriteLine($"Exact: {string.Join(", ", distance)}");
+// }
 
 Console.WriteLine($"Recall: {recall * 100}%");
 
