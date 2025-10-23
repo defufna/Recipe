@@ -1,4 +1,5 @@
-﻿namespace VlxAPI;
+﻿
+namespace VlxAPI;
 
 public class RecipeDTO
 {
@@ -10,6 +11,13 @@ public class RecipeDTO
     public string? Link { get; set; }
     public string? Source { get; set; }
     public float[]? IngredientEmbedding { get; set; }
+
+    public bool Valid()
+    {
+        return IngredientsJson != null && DirectionsJson != null &&
+               NerJson != null && Link != null && Source != null &&
+               IngredientEmbedding != null;
+    }
 }
 
 public class RecipeResultDTO

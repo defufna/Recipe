@@ -1,4 +1,8 @@
 <Solution>
+  <Folder Name="/Experiments/">
+    <Project Path="Experiments/BallTree/BallTree.csproj" />
+    <Project Path="Experiments/HNSW/HNSW.csproj" />
+  </Folder>
   <Project Path="Client/Client.csproj" />
   <Project Path="VlxAPI/VlxAPI.csproj" />
   <Project Path="VlxServer/VlxServer.csproj" />

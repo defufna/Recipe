@@ -31,7 +31,6 @@ namespace RecipeVectorSearch
 
         public string GetConnectionString() => connectionString;
         
-
         public async Task Initialize()
         {
             await Drop();
@@ -44,7 +43,7 @@ namespace RecipeVectorSearch
 
         public async Task<List<RecipeResult>> SearchSimilarRecipes(float[] embedding, int limit = 20)
         {
-            RecipeResultDTO[] dtos = await api.SemanticSearch(embedding, limit);
+            RecipeResultDTO[] dtos = await api.SemanticSearch(embedding, limit, false);
 
             List<RecipeResult> result = new(dtos.Length);
 
