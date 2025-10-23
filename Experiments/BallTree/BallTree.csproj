@@ -5,7 +5,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="VeloxDB.Protocol" Version="0.5.0" />
+    <PackageReference Include="VeloxDB.Protocol" Version="0.6.0" />
   </ItemGroup>
 
   <PropertyGroup>
